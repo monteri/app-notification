@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Task Queue Demo</title>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f4f4;
+            text-align: center;
+        }
+        #addTaskButton {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            margin: 20px 0;
+            border: none;
+            cursor: pointer;
+        }
+        #addTaskButton:hover {
+            background-color: #45a049;
+        }
+        #taskPosition {
+            margin-top: 20px;
+            font-size: 20px;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+
+<h2>Task Processing System</h2>
+<button id="addTaskButton">Add Task</button>
+<div id="taskPosition">Task Status: <span id="taskStatus">N/A</span></div>
+
+<script>
+    $(document).ready(function(){
+        var taskId = null;
+        var positionInterval = null;
+
+        $("#addTaskButton").click(function(){
+            $.ajax({
+                url: '/add-task/',
+                type: 'post',
+                dataType: 'json',
+                success: function (data) {
+                    taskId = data.task_id;
+                    $('#taskStatus').text("Waiting for update...");
+                    if (positionInterval) {
+                        clearInterval(positionInterval);
+                    }
+                    positionInterval = setInterval(function() {
+                        updateTaskStatus(taskId);
+                    }, 2500);
+                },
+                error: function () {
+                    alert("An error occurred.");
+                }
+            });
+        });
+
+        function updateTaskStatus(taskId) {
+            $.ajax({
+                url: '/check-task-status/' + taskId,
+                type: 'get',
+                success: function (data) {
+                    $('#taskStatus').text(data.status);
+                    if (data.status === 'success' || data.status === 'error') {
+                        clearInterval(positionInterval);
+                    }
+                },
+                error: function () {
+                    clearInterval(positionInterval);
+                    $('#taskStatus').text("Status not found.");
+                }
+            });
+        }
+    });
+</script>
+
+</body>
+</html>

@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "app-notifications"
+version = "0.1.0"
+description = ""
+authors = ["monteri <lansevermore>"]
+readme = "README.md"
+packages = [{include = "app_notifications"}]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+django = "^4.2.7"
+python-decouple = "^3.8"
+boto3 = "^1.29.3"
+redis = "^5.0.1"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
