@@ -23,10 +23,16 @@
         #addTaskButton:hover {
             background-color: #45a049;
         }
-        #taskPosition {
-            margin-top: 20px;
-            font-size: 20px;
-            color: #333;
+        #tasks {
+            list-style-type: none;
+            padding: 0;
+        }
+        .task-item {
+            background-color: #eef;
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
         }
     </style>
 </head>
@@ -34,50 +40,45 @@
 
 <h2>Task Processing System</h2>
 <button id="addTaskButton">Add Task</button>
-<div id="taskPosition">Task Status: <span id="taskStatus">N/A</span></div>
+<div id="tasks"></div>
 
 <script>
-    $(document).ready(function(){
-        var taskId = null;
-        var positionInterval = null;
+    Notification.requestPermission().then(function(result) {
+        console.log('User choice', result);
+    });
 
-        $("#addTaskButton").click(function(){
+    const eventSource = new EventSource('/task-status-stream/');
+    eventSource.onmessage = function(event) {
+        const message = JSON.parse(event.data);
+        if (message.task_id) {
+
+            let taskElem = $('#taskStatus_' + message.task_id);
+            if (taskElem.length === 0) {
+                    if (Notification.permission === 'granted') {
+                        new Notification(`Task #${message.task_id}: in queue`);
+                    }
+                $('#tasks').append('<li class="task-item" id="taskStatus_' + message.task_id + '">Task #' + message.task_id + ': ' + message.status + '</li>');
+            } else {
+                taskElem.text('Task #' + message.task_id + ': ' + message.status);
+            }
+        }
+    };
+
+    $(document).ready(function() {
+        $("#addTaskButton").click(function() {
             $.ajax({
                 url: '/add-task/',
                 type: 'post',
                 dataType: 'json',
-                success: function (data) {
-                    taskId = data.task_id;
-                    $('#taskStatus').text("Waiting for update...");
-                    if (positionInterval) {
-                        clearInterval(positionInterval);
-                    }
-                    positionInterval = setInterval(function() {
-                        updateTaskStatus(taskId);
-                    }, 2500);
+                success: function(data) {
+                    // Append a new task status element for each new task
+                    alert('Task ID: ' + data.task_id + ' - Status: ' + data.status)
                 },
-                error: function () {
+                error: function() {
                     alert("An error occurred.");
                 }
             });
         });
-
-        function updateTaskStatus(taskId) {
-            $.ajax({
-                url: '/check-task-status/' + taskId,
-                type: 'get',
-                success: function (data) {
-                    $('#taskStatus').text(data.status);
-                    if (data.status === 'success' || data.status === 'error') {
-                        clearInterval(positionInterval);
-                    }
-                },
-                error: function () {
-                    clearInterval(positionInterval);
-                    $('#taskStatus').text("Status not found.");
-                }
-            });
-        }
     });
 </script>
 

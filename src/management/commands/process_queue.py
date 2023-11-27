@@ -10,23 +10,36 @@ sqs = boto3.client('sqs')
 redis_client = redis.StrictRedis(host=settings.REDIS_HOST, port=settings.REDIS_PORT, db=0)
 dynamodb = boto3.resource('dynamodb')
 table = dynamodb.Table('tasks-queue')
+sns = boto3.client('sns')
+topic_arn = settings.SNS_TOPIC_ARN
 
 
 def update_task_to_processing(task_id):
-    response = table.update_item(
+    redis_client.setex(f"task_status_{task_id}", 600, 'processing')
+    table.update_item(
         Key={'task_id': task_id},
         UpdateExpression='SET task_status = :val',
         ExpressionAttributeValues={':val': 'processing'}
     )
+    print(f'Updated record in DynamoDB for status - processing')
 
 
 def mark_task_complete(task_id, is_success):
     status = 'success' if is_success else 'error'
-    response = table.update_item(
+    redis_client.setex(f"task_status_{task_id}", 600, status)
+    table.update_item(
         Key={'task_id': task_id},
         UpdateExpression='SET task_status = :val',
         ExpressionAttributeValues={':val': status}
     )
+    print(f'Updated record in DynamoDB for status - {status}')
+    message = f'Task {task_id} updated to {status}'
+    sns.publish(
+        TopicArn=topic_arn,
+        Message=message,
+        Subject='Task Status Update'
+    )
+    print('Published in SNS')
 
 
 class Command(BaseCommand):
@@ -47,7 +60,7 @@ class Command(BaseCommand):
                     print(f'Started processing {task_id}')
                     redis_client.zrem('tasks_queue', task_id)
                     update_task_to_processing(task_id)
-                    time.sleep(6)
+                    time.sleep(10)
                     sqs.delete_message(
                         QueueUrl=settings.SQS_URL,
                         ReceiptHandle=message['ReceiptHandle']

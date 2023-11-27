@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 import time
 import uuid
@@ -6,7 +7,7 @@ import boto3
 import redis
 from django.conf import settings
 from django.shortcuts import render
-from django.http import JsonResponse
+from django.http import JsonResponse, StreamingHttpResponse
 from django.views.decorators.csrf import csrf_exempt
 
 sqs = boto3.client(
@@ -24,27 +25,25 @@ redis_client = redis.Redis(host=settings.REDIS_HOST, port=settings.REDIS_PORT, d
 @csrf_exempt
 def add_task(request):
     if request.method == 'POST':
-        # Create a new Task instance
-
         task_id = str(uuid.uuid4())
         status = 'in_queue'
-        response = table.put_item(
-            Item={
-                'task_id': task_id,
-                'task_status': status,
-                'created_at': datetime.now().isoformat()
-            }
-        )
         try:
+            table.put_item(
+                Item={
+                    'task_id': task_id,
+                    'task_status': status,
+                    'created_at': datetime.now().isoformat()
+                }
+            )
             response = sqs.send_message(
                 QueueUrl=settings.SQS_URL,
-                MessageBody=task_id,  # You can send any relevant data here
+                MessageBody=task_id,
                 MessageGroupId='tasks_group',
                 MessageDeduplicationId=task_id
             )
             timestamp = time.time()
             redis_client.zadd('tasks_queue', {task_id: timestamp})
-            # You might want to log the response or handle it as needed
+            redis_client.setex(f"task_status_{task_id}", 600, status)
             print(response)
 
         except Exception as e:
@@ -59,19 +58,27 @@ def add_task(request):
         return JsonResponse({'error': 'Invalid request'}, status=400)
 
 
-@csrf_exempt
-def check_task_status(request, task_id):
-    # Check Redis for the task's position
-    position = redis_client.zrank('tasks_queue', task_id)
-    if position is not None:
-        return JsonResponse({'status': f"In queue: {position + 1}"})
+def stream_task_status(request):
+    def event_stream():
+        while True:
+            for key in redis_client.scan_iter("task_status_*"):
+                task_id = key.decode("utf-8").split("_")[2]
+                status = redis_client.get(key).decode("utf-8")
 
-    # If not in Redis, check DynamoDB
-    response = table.get_item(Key={'task_id': task_id})
-    if 'Item' in response:
-        return JsonResponse({'status': response['Item']['task_status']})
-    else:
-        return JsonResponse({'status': 'Not found'}, status=404)
+                # Check for position if the status is in_queue
+                if status == 'in_queue':
+                    position = redis_client.zrank('tasks_queue', task_id)
+                    if position is not None:
+                        status = f"In queue: {position + 1}"
+
+                # Make status user-friendly
+                status = status.replace('_', ' ').capitalize()
+
+                data = {'task_id': task_id, 'status': status}
+                yield f"data: {json.dumps(data)}\n\n"
+            time.sleep(5)  # Check every 5 seconds
+
+    return StreamingHttpResponse(event_stream(), content_type="text/event-stream")
 
 
 def task_view(request):
